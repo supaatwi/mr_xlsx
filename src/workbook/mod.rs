@@ -133,7 +133,6 @@ impl Workbook {
             self.sheets.get_mut(name).unwrap().finalize()?;
         }
 
-        // 3. สร้างไฟล์ output และ ZIP writer
         let output_file = File::create(&self.output_path)?;
         let mut zip = ZipWriter::new(output_file);
         let options = SimpleFileOptions::default()
@@ -152,7 +151,7 @@ impl Workbook {
             zip.start_file(&zip_path, options)?;
 
             let temp_file = sheet.temp.get_mut();
-            temp_file.seek(SeekFrom::Start(0))?; // rewind กลับไปต้นไฟล์
+            temp_file.seek(SeekFrom::Start(0))?;
 
             let mut buf = [0u8; 64 * 1024]; // 64KB buffer
             loop {

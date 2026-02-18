@@ -59,7 +59,7 @@ impl SheetWriter {
 
         for (col_idx, cell) in cells.iter().enumerate() {
             let col = col_idx as u32; // 0-based
-            let cell_ref = make_cell_ref(row, col); // เช่น "A1", "B2"
+            let cell_ref = make_cell_ref(row, col); // e.g "A1", "B2"
             write_cell(&mut self.temp, &cell_ref, cell)?;
         }
 
