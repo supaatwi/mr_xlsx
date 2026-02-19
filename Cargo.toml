@@ -2,7 +2,19 @@
 name = "mr_xlsx"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+rust-version = "1.91.1"
+readme = "README.md"
+description = "A Rust library for writing Excel streaming files"
+repository = "https://github.com/supaatwi/mr_xlsx"
+documentation = "https://github.com/supaatwi/mr_xlsx/blob/main/README.md"
+authors = ["Supaat Wisessued <supaat.wi@gmail.com>"]
+keywords = ["excel", "xlsx", "streaming"]
+
 
 [dependencies]
 tempfile = "3.25.0"
 zip = "8.1.0"
+quick-xml = { version = "0.39", features = ["encoding"] }
+
+[features]

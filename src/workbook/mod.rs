@@ -1,18 +1,42 @@
-use std::{collections::HashMap, fs::File, io::{Seek, SeekFrom, Write}};
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{Seek, SeekFrom, Write},
+};
 
 use zip::{ZipWriter, write::SimpleFileOptions};
 
-use crate::{Result, error::MrXlsxError, workbook::{cell::CellValue, sheet::SheetWriter}};
+use crate::{
+    Result,
+    error::MrXlsxError,
+    workbook::{cell::CellValue, sheet::SheetWriter},
+};
 pub mod builder;
 pub mod cell;
 pub mod sheet;
+pub mod style;
 
-const RELS_DOT_RELS: &str = r#"
-    <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-        <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-        <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
-        </Relationships>
-"#;
+const RELS_DOT_RELS: &str = concat!(
+    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
+    r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
+    r#"<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>"#,
+    r#"</Relationships>"#,
+);
+
+const STYLES_XML: &str = concat!(
+    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
+    r#"<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#,
+    r#"<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>"#,
+    r#"<fills count="2">"#,
+    r#"<fill><patternFill/></fill>"#,
+    r#"<fill><patternFill patternType="gray125"/></fill>"#,
+    r#"</fills>"#,
+    r#"<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>"#,
+    r#"<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>"#,
+    r#"<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>"#,
+    r#"<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>"#,
+    r#"</styleSheet>"#,
+);
 
 fn workbook_xml(order: &[String]) -> String {
     let mut sheets = String::new();
@@ -21,22 +45,21 @@ fn workbook_xml(order: &[String]) -> String {
         let r_id = format!("rId{}", i + 1);
         let escaped_name = xml_escape(name);
         sheets.push_str(&format!(
-            "<sheet name=\"{escaped_name}\" sheetId=\"{sheet_id}\" r:id=\"{r_id}\"/>\n"
+            r#"<sheet name="{escaped_name}" sheetId="{sheet_id}" r:id="{r_id}"/>"#
         ));
     }
 
     format!(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-                <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
-                        xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
-                <bookViews>
-                    <workbookView activeTab="0"/>
-                </bookViews>
-                <sheets>
-                    {sheets}
-                </sheets>
-                <calcPr fullCalcOnLoad="1"/>
-            </workbook>"#
+        concat!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
+            r#"<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" "#,
+            r#"xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">"#,
+            r#"<bookViews><workbookView activeTab="0"/></bookViews>"#,
+            r#"<sheets>{}</sheets>"#,
+            r#"<calcPr fullCalcOnLoad="1"/>"#,
+            r#"</workbook>"#,
+        ),
+        sheets
     )
 }
 
@@ -45,51 +68,49 @@ fn workbook_rels_xml(sheet_count: usize) -> String {
 
     for i in 1..=sheet_count {
         rels.push_str(&format!(
-            r#"
-                <Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>
-            "#
+            r#"<Relationship Id="rId{i}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet{i}.xml"/>"#
         ));
     }
 
     let styles_id = sheet_count + 1;
     rels.push_str(&format!(
-        r#"
-            <Relationship Id="rId{styles_id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
-        "#
+        r#"<Relationship Id="rId{styles_id}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>"#
     ));
 
     format!(
-        r#"
-        <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-            <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-                {rels}
-            </Relationships>
-        "#
+        concat!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
+            r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
+            r#"{}"#,
+            r#"</Relationships>"#,
+        ),
+        rels
     )
 }
 
-const STYLES_XML: &str = r#"
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-    <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-        <fonts count="1">
-            <font><sz val="11"/><name val="Calibri"/></font>
-        </fonts>
-        <fills count="2">
-            <fill><patternFill/></fill>
-            <fill><patternFill patternType="gray125"/></fill>
-        </fills>
-        <borders count="1">
-            <border><left/><right/><top/><bottom/><diagonal/></border>
-        </borders>
-        <cellStyleXfs count="1">
-            <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
-        </cellStyleXfs>
-        <cellXfs count="1">
-            <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
-        </cellXfs>
-    </styleSheet>
-"#;
+fn content_types_xml(sheet_count: usize) -> String {
+    let mut overrides = String::new();
 
+    for i in 1..=sheet_count {
+        overrides.push_str(&format!(
+            r#"<Override PartName="/xl/worksheets/sheet{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>"#
+        ));
+    }
+
+    format!(
+        concat!(
+            r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
+            r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">"#,
+            r#"<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>"#,
+            r#"<Default Extension="xml" ContentType="application/xml"/>"#,
+            r#"<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>"#,
+            r#"<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>"#,
+            r#"{}"#,
+            r#"</Types>"#,
+        ),
+        overrides
+    )
+}
 
 pub struct Workbook {
     output_path: String,
@@ -98,9 +119,7 @@ pub struct Workbook {
 }
 
 impl Workbook {
-    
     pub(crate) fn new_with_builder(path: String, sheets: Vec<String>) -> Result<Self> {
-
         let mut insertion_order = vec![];
         let mut _sheets = HashMap::new();
         sheets.into_iter().try_for_each(|name| -> Result<()> {
@@ -112,37 +131,51 @@ impl Workbook {
 
         Ok(Self {
             output_path: path,
-            sheets: HashMap::new(),
-            insertion_order
+            sheets: _sheets,
+            insertion_order,
         })
+    }
+
+    pub fn get_sheet(&mut self, name: &str) -> Option<&mut SheetWriter> {
+        self.sheets.get_mut(name)
     }
 
     pub fn add_sheet(&mut self, name: &str) -> Result<&mut SheetWriter> {
         if self.sheets.contains_key(name) {
-            return Err(MrXlsxError::AlreadyExists(format!("Sheet '{name}' already exists")));
+            return Err(MrXlsxError::AlreadyExists(format!(
+                "Sheet '{name}' already exists"
+            )));
         }
         let writer = SheetWriter::new(name)?;
         self.sheets.insert(name.to_string(), writer);
         self.insertion_order.push(name.to_string());
-        Ok(self.sheets.get_mut(name).unwrap())
+        let sheet = match self.sheets.get_mut(name) {
+            Some(s) => s,
+            None => return Err(MrXlsxError::NotFound(format!("Sheet {name} not found!!")))
+        };
+        Ok(sheet)
     }
 
     pub fn finish(mut self) -> Result<()> {
-    
         for name in &self.insertion_order {
-            self.sheets.get_mut(name).unwrap().finalize()?;
+            match self.sheets.get_mut(name) {
+                Some(s) => s.finalize()?,
+                None => {
+                    return Err(MrXlsxError::NotFound(format!("Sheet name : {name}!!")));
+                }
+            }
         }
 
         let output_file = File::create(&self.output_path)?;
         let mut zip = ZipWriter::new(output_file);
-        let options = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
         zip_write_str(&mut zip, "[Content_Types].xml", &content_types_xml(self.insertion_order.len()), options)?;
-        zip_write_str(&mut zip, "_rels/.rels",          RELS_DOT_RELS,                  options)?;
-        zip_write_str(&mut zip, "xl/workbook.xml",      &workbook_xml(&self.insertion_order),           options)?;
+        zip_write_str(&mut zip, "_rels/.rels", RELS_DOT_RELS, options)?;
+        zip_write_str(&mut zip, "xl/workbook.xml", &workbook_xml(&self.insertion_order), options)?;
         zip_write_str(&mut zip, "xl/_rels/workbook.xml.rels", &workbook_rels_xml(self.insertion_order.len()), options)?;
-        zip_write_str(&mut zip, "xl/styles.xml",        STYLES_XML,                     options)?;
+        zip_write_str(&mut zip, "xl/styles.xml", STYLES_XML, options)?;
 
         for (i, name) in self.insertion_order.iter().enumerate() {
             let sheet = self.sheets.get_mut(name).unwrap();
@@ -153,7 +186,7 @@ impl Workbook {
             let temp_file = sheet.temp.get_mut();
             temp_file.seek(SeekFrom::Start(0))?;
 
-            let mut buf = [0u8; 64 * 1024]; // 64KB buffer
+            let mut buf = [0u8; 64 * 1024];
             loop {
                 use std::io::Read;
                 let n = temp_file.read(&mut buf)?;
@@ -163,11 +196,9 @@ impl Workbook {
         }
 
         zip.finish()?;
-
         Ok(())
     }
 }
-
 
 pub(crate) fn make_cell_ref(row: u32, col: u32) -> String {
     format!("{}{}", col_to_letters(col), row)
@@ -177,15 +208,12 @@ pub(crate) fn col_to_letters(mut col: u32) -> String {
     let mut result = Vec::new();
     loop {
         result.push(b'A' + (col % 26) as u8);
-        if col < 26 {
-            break;
-        }
+        if col < 26 { break; }
         col = col / 26 - 1;
     }
     result.reverse();
     String::from_utf8(result).unwrap()
 }
-
 
 pub(crate) fn xml_escape(s: &str) -> String {
     if !s.contains(['&', '<', '>', '"', '\'']) {
@@ -210,21 +238,17 @@ pub(crate) fn write_cell<W: Write>(w: &mut W, cell_ref: &str, value: &CellValue)
         CellValue::Blank => {
             write!(w, "<c r=\"{cell_ref}\"/>")?;
         }
-
         CellValue::Number(n) => {
             write!(w, "<c r=\"{cell_ref}\"><v>{n}</v></c>")?;
         }
-
         CellValue::Text(s) => {
             let escaped = xml_escape(s);
             write!(w, "<c r=\"{cell_ref}\" t=\"inlineStr\"><is><t>{escaped}</t></is></c>")?;
         }
-
         CellValue::Bool(b) => {
             let val = if *b { 1 } else { 0 };
             write!(w, "<c r=\"{cell_ref}\" t=\"b\"><v>{val}</v></c>")?;
         }
-
         CellValue::Formula(f) => {
             let escaped = xml_escape(f);
             write!(w, "<c r=\"{cell_ref}\"><f>{escaped}</f><v/></c>")?;
@@ -232,7 +256,6 @@ pub(crate) fn write_cell<W: Write>(w: &mut W, cell_ref: &str, value: &CellValue)
     }
     Ok(())
 }
-
 
 pub(crate) fn zip_write_str<W: Write + Seek>(
     zip: &mut ZipWriter<W>,
@@ -243,28 +266,4 @@ pub(crate) fn zip_write_str<W: Write + Seek>(
     zip.start_file(path, options)?;
     zip.write_all(content.as_bytes())?;
     Ok(())
-}
-
-fn content_types_xml(sheet_count: usize) -> String {
-    let mut overrides = String::new();
-
-    for i in 1..=sheet_count {
-        overrides.push_str(&format!(
-            r#"
-                <Override PartName="/xl/worksheets/sheet{i}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
-            "#
-        ));
-    }
-
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-            <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-                <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-                <Default Extension="xml"  ContentType="application/xml"/>
-                <Override PartName="/xl/workbook.xml"  ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-                <Override PartName="/xl/styles.xml"   ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
-                {overrides}
-            </Types>
-        "#
-    )
 }

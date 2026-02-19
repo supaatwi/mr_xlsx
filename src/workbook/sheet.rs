@@ -21,14 +21,13 @@ impl SheetWriter {
 
         write!(
             writer,
-            r#"
-                <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-                    <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-                    <sheetViews>
-                        <sheetView workbookViewId="0"/></sheetViews>
-                    <sheetFormatPr defaultRowHeight="15"/>
-                    <sheetData>
-            "#
+            concat!(
+                r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
+                r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#,
+                r#"<sheetViews><sheetView workbookViewId="0"/></sheetViews>"#,
+                r#"<sheetFormatPr defaultRowHeight="15"/>"#,
+                r#"<sheetData>"#,
+            )
         )?;
 
         Ok(SheetWriter {
@@ -71,9 +70,11 @@ impl SheetWriter {
     pub(crate) fn finalize(&mut self) -> Result<()> {
         write!(
             self.temp,
-            "</sheetData>\
-                <pageMargins left=\"0.75\" right=\"0.75\" top=\"1\" bottom=\"1\" header=\"0.5\" footer=\"0.5\"/>\
-             </worksheet>"
+            concat!(
+                r#"</sheetData>"#,
+                r#"<pageMargins left="0.75" right="0.75" top="1" bottom="1" header="0.5" footer="0.5"/>"#,
+                r#"</worksheet>"#,
+            )
         )?;
         self.temp.flush()?;
         Ok(())
