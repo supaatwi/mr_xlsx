@@ -106,7 +106,7 @@ impl Style {
     }
 }
 
-pub struct StyleRegistry {
+pub(crate) struct StyleRegistry {
     fonts: Vec<Font>,
     fills: Vec<Fill>,
     borders: Vec<Border>,
@@ -122,31 +122,37 @@ pub struct StyleRegistry {
 }
 
 impl StyleRegistry {
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let mut reg = StyleRegistry {
-            fonts: Vec::new(),
-            fills: Vec::new(),
-            borders: Vec::new(),
-            num_fmts: Vec::new(),
-            font_index: HashMap::new(),
-            fill_index: HashMap::new(),
-            border_index: HashMap::new(),
-            num_fmt_index: HashMap::new(),
-            xfs: Vec::new(),
-            xf_index: HashMap::new(),
+            fonts:           Vec::new(),
+            fills:           Vec::new(),
+            borders:         Vec::new(),
+            num_fmts:        Vec::new(),
+            font_index:      HashMap::new(),
+            fill_index:      HashMap::new(),
+            border_index:    HashMap::new(),
+            num_fmt_index:   HashMap::new(),
+            xfs:             Vec::new(),
+            xf_index:        HashMap::new(),
             next_num_fmt_id: 164,
         };
 
-        reg.intern_font(Font::default());
-        reg.intern_fill(Fill::None);
-        reg.intern_fill(Fill::None);
-        reg.intern_border(Border::default());
+        reg.fonts.push(Font::default());
+        reg.font_index.insert(Font::default(), 0);
+
+        reg.fills.push(Fill::None);
+        reg.fill_index.insert(Fill::None, 0);
+        reg.fills.push(Fill::None); 
+
+        reg.borders.push(Border::default());
+        reg.border_index.insert(Border::default(), 0);
+
         reg.intern_xf(0, 0, 0, 0);
 
         reg
     }
 
-    pub fn register(&mut self, style: &Style) -> usize {
+    pub(crate) fn register(&mut self, style: &Style) -> usize {
         let font_id = self.intern_font(style.font.clone());
         let fill_id = self.intern_fill(style.fill.clone());
         let border_id = self.intern_border(style.border.clone());

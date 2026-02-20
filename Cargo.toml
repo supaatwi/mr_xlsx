@@ -1,6 +1,6 @@
 [package]
 name = "mr_xlsx"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 rust-version = "1.91.1"
@@ -18,3 +18,4 @@ zip = "8.1.0"
 quick-xml = { version = "0.39", features = ["encoding"] }
 
 [features]
+default = []

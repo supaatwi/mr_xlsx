@@ -9,7 +9,7 @@ use zip::{ZipWriter, write::SimpleFileOptions};
 use crate::{
     Result,
     error::MrXlsxError,
-    workbook::{cell::CellValue, sheet::SheetWriter},
+    workbook::{cell::CellValue, sheet::SheetWriter, style::StyleRegistry},
 };
 pub mod builder;
 pub mod cell;
@@ -21,21 +21,6 @@ const RELS_DOT_RELS: &str = concat!(
     r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#,
     r#"<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>"#,
     r#"</Relationships>"#,
-);
-
-const STYLES_XML: &str = concat!(
-    r#"<?xml version="1.0" encoding="UTF-8" standalone="yes"?>"#,
-    r#"<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">"#,
-    r#"<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>"#,
-    r#"<fills count="2">"#,
-    r#"<fill><patternFill/></fill>"#,
-    r#"<fill><patternFill patternType="gray125"/></fill>"#,
-    r#"</fills>"#,
-    r#"<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>"#,
-    r#"<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>"#,
-    r#"<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>"#,
-    r#"<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>"#,
-    r#"</styleSheet>"#,
 );
 
 fn workbook_xml(order: &[String]) -> String {
@@ -116,14 +101,18 @@ pub struct Workbook {
     output_path: String,
     sheets: HashMap<String, SheetWriter>,
     insertion_order: Vec<String>,
+    style_reg: Box<StyleRegistry>,
 }
 
 impl Workbook {
     pub(crate) fn new_with_builder(path: String, sheets: Vec<String>) -> Result<Self> {
         let mut insertion_order = vec![];
         let mut _sheets = HashMap::new();
+        let mut style_reg = Box::new(StyleRegistry::new());
+        let reg_ptr: *mut StyleRegistry = &mut *style_reg;
+
         sheets.into_iter().try_for_each(|name| -> Result<()> {
-            let sheet_writer = SheetWriter::new(&name)?;
+            let sheet_writer = SheetWriter::new(&name, reg_ptr)?;
             insertion_order.push(name.clone());
             _sheets.insert(name, sheet_writer);
             Ok(())
@@ -133,6 +122,7 @@ impl Workbook {
             output_path: path,
             sheets: _sheets,
             insertion_order,
+            style_reg,
         })
     }
 
@@ -146,12 +136,13 @@ impl Workbook {
                 "Sheet '{name}' already exists"
             )));
         }
-        let writer = SheetWriter::new(name)?;
+        let reg_ptr: *mut StyleRegistry = &mut *self.style_reg;
+        let writer = SheetWriter::new(name, reg_ptr)?;
         self.sheets.insert(name.to_string(), writer);
         self.insertion_order.push(name.to_string());
         let sheet = match self.sheets.get_mut(name) {
             Some(s) => s,
-            None => return Err(MrXlsxError::NotFound(format!("Sheet {name} not found!!")))
+            None => return Err(MrXlsxError::NotFound(format!("Sheet {name} not found!!"))),
         };
         Ok(sheet)
     }
@@ -171,11 +162,28 @@ impl Workbook {
         let options =
             SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
-        zip_write_str(&mut zip, "[Content_Types].xml", &content_types_xml(self.insertion_order.len()), options)?;
+        zip_write_str(
+            &mut zip,
+            "[Content_Types].xml",
+            &content_types_xml(self.insertion_order.len()),
+            options,
+        )?;
         zip_write_str(&mut zip, "_rels/.rels", RELS_DOT_RELS, options)?;
-        zip_write_str(&mut zip, "xl/workbook.xml", &workbook_xml(&self.insertion_order), options)?;
-        zip_write_str(&mut zip, "xl/_rels/workbook.xml.rels", &workbook_rels_xml(self.insertion_order.len()), options)?;
-        zip_write_str(&mut zip, "xl/styles.xml", STYLES_XML, options)?;
+        zip_write_str(
+            &mut zip,
+            "xl/workbook.xml",
+            &workbook_xml(&self.insertion_order),
+            options,
+        )?;
+        zip_write_str(
+            &mut zip,
+            "xl/_rels/workbook.xml.rels",
+            &workbook_rels_xml(self.insertion_order.len()),
+            options,
+        )?;
+        
+        let styles_xml = self.style_reg.to_xml();
+        zip_write_str(&mut zip, "xl/styles.xml", &styles_xml, options)?;
 
         for (i, name) in self.insertion_order.iter().enumerate() {
             let sheet = self.sheets.get_mut(name).unwrap();
@@ -190,7 +198,9 @@ impl Workbook {
             loop {
                 use std::io::Read;
                 let n = temp_file.read(&mut buf)?;
-                if n == 0 { break; }
+                if n == 0 {
+                    break;
+                }
                 zip.write_all(&buf[..n])?;
             }
         }
@@ -208,7 +218,9 @@ pub(crate) fn col_to_letters(mut col: u32) -> String {
     let mut result = Vec::new();
     loop {
         result.push(b'A' + (col % 26) as u8);
-        if col < 26 { break; }
+        if col < 26 {
+            break;
+        }
         col = col / 26 - 1;
     }
     result.reverse();
@@ -222,36 +234,48 @@ pub(crate) fn xml_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for ch in s.chars() {
         match ch {
-            '&'  => out.push_str("&amp;"),
-            '<'  => out.push_str("&lt;"),
-            '>'  => out.push_str("&gt;"),
-            '"'  => out.push_str("&quot;"),
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&apos;"),
-            _    => out.push(ch),
+            _ => out.push(ch),
         }
     }
     out
 }
+pub(crate) fn write_cell<W: Write>(
+    w: &mut W,
+    cell_ref: &str,
+    value: &CellValue,
+    style_idx: Option<usize>,
+) -> Result<()> {
+    let s = match style_idx {
+        Some(0) | None => String::new(),
+        Some(n) => format!(" s=\"{n}\""),
+    };
 
-pub(crate) fn write_cell<W: Write>(w: &mut W, cell_ref: &str, value: &CellValue) -> Result<()> {
     match value {
         CellValue::Blank => {
-            write!(w, "<c r=\"{cell_ref}\"/>")?;
+            write!(w, "<c r=\"{cell_ref}\"{s}/>")?;
         }
         CellValue::Number(n) => {
-            write!(w, "<c r=\"{cell_ref}\"><v>{n}</v></c>")?;
+            write!(w, "<c r=\"{cell_ref}\"{s}><v>{n}</v></c>")?;
         }
-        CellValue::Text(s) => {
-            let escaped = xml_escape(s);
-            write!(w, "<c r=\"{cell_ref}\" t=\"inlineStr\"><is><t>{escaped}</t></is></c>")?;
+        CellValue::Text(text) => {
+            let escaped = xml_escape(text);
+            write!(
+                w,
+                "<c r=\"{cell_ref}\"{s} t=\"inlineStr\"><is><t>{escaped}</t></is></c>"
+            )?;
         }
         CellValue::Bool(b) => {
             let val = if *b { 1 } else { 0 };
-            write!(w, "<c r=\"{cell_ref}\" t=\"b\"><v>{val}</v></c>")?;
+            write!(w, "<c r=\"{cell_ref}\"{s} t=\"b\"><v>{val}</v></c>")?;
         }
         CellValue::Formula(f) => {
             let escaped = xml_escape(f);
-            write!(w, "<c r=\"{cell_ref}\"><f>{escaped}</f><v/></c>")?;
+            write!(w, "<c r=\"{cell_ref}\"{s}><f>{escaped}</f><v/></c>")?;
         }
     }
     Ok(())
