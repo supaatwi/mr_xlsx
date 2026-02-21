@@ -5,9 +5,14 @@ use mr_xlsx::{error::MrXlsxError, workbook::{builder::WorkbookBuilder, cell::Cel
 fn main() -> Result<(), MrXlsxError> {
 
     let header = Style::new()
-    .bold()
-    .bg("2784F5")
-    .font_color("000000");
+        .bold()
+        .bg("2784F5")
+        .font_color("000000");
+
+    let header2 = Style::new()
+        .bold()
+        .bg("2784F5")
+        .font_color("FFFFFF");
 
     let mut wb = WorkbookBuilder::new("./example.xlsx").build()?;
 
@@ -15,10 +20,10 @@ fn main() -> Result<(), MrXlsxError> {
         let sheet_name = format!("Sheet ({})", x);
         let sheet = wb.add_sheet(&sheet_name)?;
         sheet.write_row_with_style(&[
-            CellValue::text("Name"),
-            CellValue::text("Score"),
-            CellValue::text("Pass"),
-        ], &header)?;
+            (CellValue::text("Name"), &header),
+            (CellValue::text("Score"), &header),
+            (CellValue::text("Pass"), &header2),
+        ])?;
         for i in 1..1_000 {
             sheet.write_row(&[
                 CellValue::text(&format!("A{i}")),

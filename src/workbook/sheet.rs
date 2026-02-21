@@ -70,7 +70,8 @@ impl SheetWriter {
         Ok(())
     }
 
-    pub fn write_row_with_style(&mut self, cells: &[CellValue], style: &Style) -> Result<()> {
+
+    pub fn write_row_with_style(&mut self, cells: &[(CellValue, &Style)]) -> Result<()> {
         self.current_row += 1;
         let row = self.current_row;
 
@@ -82,13 +83,13 @@ impl SheetWriter {
             self.max_col = cells.len() as u32;
         }
 
-        let style_idx = unsafe {
-            (*self.style_reg).register(style)
-        };
         
         write!(self.temp, "<row r=\"{row}\">")?;
 
-        for (col_idx, cell) in cells.iter().enumerate() {
+        for (col_idx, (cell, style)) in cells.iter().enumerate() {
+            let style_idx = unsafe {
+                (*self.style_reg).register(style)
+            };
             let col = col_idx as u32; // 0-based
             let cell_ref = make_cell_ref(row, col); // e.g "A1", "B2"
             write_cell(&mut self.temp, &cell_ref, cell, Some(style_idx))?; 
