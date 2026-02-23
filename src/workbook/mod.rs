@@ -147,6 +147,86 @@ impl Workbook {
         Ok(sheet)
     }
 
+    pub fn finish_by_order(mut self, sheet_order: &[&str]) -> Result<()> {
+        let _sheet_order = sheet_order
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+
+        let mut insertion_order = vec![];
+        insertion_order.extend(
+            sheet_order
+                .into_iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<String>>(),
+        );
+        self.insertion_order.into_iter().for_each(|sheet| {
+            if !insertion_order.contains(&sheet) {
+                insertion_order.push(sheet);
+            }
+        });
+
+         for name in &insertion_order {
+            match self.sheets.get_mut(name) {
+                Some(s) => s.finalize()?,
+                None => {
+                    return Err(MrXlsxError::NotFound(format!("Sheet name : {name}!!")));
+                }
+            }
+        }
+       
+       let output_file = File::create(&self.output_path)?;
+        let mut zip = ZipWriter::new(output_file);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
+
+        zip_write_str(
+            &mut zip,
+            "[Content_Types].xml",
+            &content_types_xml(insertion_order.len()),
+            options,
+        )?;
+        zip_write_str(&mut zip, "_rels/.rels", RELS_DOT_RELS, options)?;
+        zip_write_str(
+            &mut zip,
+            "xl/workbook.xml",
+            &workbook_xml(&insertion_order),
+            options,
+        )?;
+        zip_write_str(
+            &mut zip,
+            "xl/_rels/workbook.xml.rels",
+            &workbook_rels_xml(insertion_order.len()),
+            options,
+        )?;
+
+        let styles_xml = self.style_reg.to_xml();
+        zip_write_str(&mut zip, "xl/styles.xml", &styles_xml, options)?;
+
+        for (i, name) in insertion_order.iter().enumerate() {
+            let sheet = self.sheets.get_mut(name).unwrap();
+            let zip_path = format!("xl/worksheets/sheet{}.xml", i + 1);
+
+            zip.start_file(&zip_path, options)?;
+
+            let temp_file = sheet.temp.get_mut();
+            temp_file.seek(SeekFrom::Start(0))?;
+
+            let mut buf = [0u8; 64 * 1024];
+            loop {
+                use std::io::Read;
+                let n = temp_file.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                zip.write_all(&buf[..n])?;
+            }
+        }
+
+        zip.finish()?;
+        Ok(())
+    }
+
     pub fn finish(mut self) -> Result<()> {
         for name in &self.insertion_order {
             match self.sheets.get_mut(name) {
@@ -181,7 +261,7 @@ impl Workbook {
             &workbook_rels_xml(self.insertion_order.len()),
             options,
         )?;
-        
+
         let styles_xml = self.style_reg.to_xml();
         zip_write_str(&mut zip, "xl/styles.xml", &styles_xml, options)?;
 

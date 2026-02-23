@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "mr_xlsx"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "quick-xml",
  "tempfile",
