@@ -1,14 +1,22 @@
-pub enum CellValue<'a> {
+pub enum CellValue {
     Number(f64),
-    Text(&'a str),
+    Text(String),
     Bool(bool),
-    Formula(&'a str),
+    Formula(String),
     Blank,
 }
 
-impl<'a> CellValue<'a> {
-    pub fn num(v: f64)     -> Self { CellValue::Number(v) }
-    pub fn text(v: &'a str) -> Self { CellValue::Text(v) }
-    pub fn bool(v: bool)   -> Self { CellValue::Bool(v) }
-    pub fn formula(v: &'a str) -> Self { CellValue::Formula(v) }
+impl CellValue {
+    pub fn num(v: f64) -> Self {
+        CellValue::Number(v)
+    }
+    pub fn text<S: Into<String>>(v: S) -> Self {
+        CellValue::Text(v.into())
+    }
+    pub fn bool(v: bool) -> Self {
+        CellValue::Bool(v)
+    }
+    pub fn formula<S: Into<String>>(v: S) -> Self {
+        CellValue::Formula(v.into())
+    }
 }

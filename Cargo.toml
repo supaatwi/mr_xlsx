@@ -1,6 +1,6 @@
 [package]
 name = "mr_xlsx"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 license = "MIT"
 rust-version = "1.91.1"
