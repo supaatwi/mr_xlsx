@@ -1,4 +1,5 @@
 use std::io::{BufWriter, Write};
+use std::sync::{Arc, Mutex};
 
 use tempfile::NamedTempFile;
 
@@ -12,11 +13,11 @@ pub struct SheetWriter {
     pub(crate) temp: BufWriter<NamedTempFile>,
     current_row: u32,
     max_col: u32,
-    style_reg: *mut StyleRegistry,
+    style_reg: Arc<Mutex<StyleRegistry>>,
 }
 
 impl SheetWriter {
-    pub(crate) fn new(name: &str, style_reg: *mut StyleRegistry) -> Result<Self> {
+    pub(crate) fn new(name: &str, style_reg: Arc<Mutex<StyleRegistry>>) -> Result<Self> {
         let temp_file = NamedTempFile::new()?;
         let mut writer = BufWriter::new(temp_file);
 
@@ -86,14 +87,14 @@ impl SheetWriter {
         
         write!(self.temp, "<row r=\"{row}\">")?;
 
+        let mut reg = self.style_reg.lock().unwrap();
         for (col_idx, (cell, style)) in cells.iter().enumerate() {
-            let style_idx = unsafe {
-                (*self.style_reg).register(style)
-            };
+            let style_idx = reg.register(style);
             let col = col_idx as u32; // 0-based
             let cell_ref = make_cell_ref(row, col); // e.g "A1", "B2"
             write_cell(&mut self.temp, &cell_ref, cell, Some(style_idx))?; 
         }
+        drop(reg);
 
         write!(self.temp, "</row>")?;
 

@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     fs::File,
     io::{Seek, SeekFrom, Write},
+    sync::{Arc, Mutex},
 };
 
 use zip::{ZipWriter, write::SimpleFileOptions};
@@ -101,18 +102,17 @@ pub struct Workbook {
     output_path: String,
     sheets: HashMap<String, SheetWriter>,
     insertion_order: Vec<String>,
-    style_reg: Box<StyleRegistry>,
+    style_reg: Arc<Mutex<StyleRegistry>>,
 }
 
 impl Workbook {
     pub(crate) fn new_with_builder(path: String, sheets: Vec<String>) -> Result<Self> {
         let mut insertion_order = vec![];
         let mut _sheets = HashMap::new();
-        let mut style_reg = Box::new(StyleRegistry::new());
-        let reg_ptr: *mut StyleRegistry = &mut *style_reg;
+        let style_reg = Arc::new(Mutex::new(StyleRegistry::new()));
 
         sheets.into_iter().try_for_each(|name| -> Result<()> {
-            let sheet_writer = SheetWriter::new(&name, reg_ptr)?;
+            let sheet_writer = SheetWriter::new(&name, Arc::clone(&style_reg))?;
             insertion_order.push(name.clone());
             _sheets.insert(name, sheet_writer);
             Ok(())
@@ -136,8 +136,7 @@ impl Workbook {
                 "Sheet '{name}' already exists"
             )));
         }
-        let reg_ptr: *mut StyleRegistry = &mut *self.style_reg;
-        let writer = SheetWriter::new(name, reg_ptr)?;
+        let writer = SheetWriter::new(name, Arc::clone(&self.style_reg))?;
         self.sheets.insert(name.to_string(), writer);
         self.insertion_order.push(name.to_string());
         let sheet = match self.sheets.get_mut(name) {
@@ -200,7 +199,7 @@ impl Workbook {
             options,
         )?;
 
-        let styles_xml = self.style_reg.to_xml();
+        let styles_xml = self.style_reg.lock().unwrap().to_xml();
         zip_write_str(&mut zip, "xl/styles.xml", &styles_xml, options)?;
 
         for (i, name) in insertion_order.iter().enumerate() {
@@ -262,7 +261,7 @@ impl Workbook {
             options,
         )?;
 
-        let styles_xml = self.style_reg.to_xml();
+        let styles_xml = self.style_reg.lock().unwrap().to_xml();
         zip_write_str(&mut zip, "xl/styles.xml", &styles_xml, options)?;
 
         for (i, name) in self.insertion_order.iter().enumerate() {
